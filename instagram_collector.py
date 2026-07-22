@@ -28,7 +28,7 @@ import time
 from dataclasses import dataclass, asdict
 from pathlib import Path
 
-MANUAL_CACHE_PATH = Path(__file__).parent.parent / "data" / "manual_profile_notes.json"
+MANUAL_CACHE_PATH = Path(__file__).parent / "data" / "manual_profile_notes.json"
 
 
 @dataclass
