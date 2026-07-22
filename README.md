@@ -15,7 +15,7 @@
 ```bash
 скачать репозиторий любым способом
 открыть терминал от имени администратора
-ввести команду `pip install -r requirements.txt`
+ввести команду 'pip install -r requirements.txt`
 cp .env.example .env
 ```
 
