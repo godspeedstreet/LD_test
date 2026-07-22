@@ -10,11 +10,15 @@ def _load_system_prompt() -> str:
 def generate_offer(portrait: dict, candidate: dict) -> dict:
     system = _load_system_prompt()
     user = (
-        f"Портрет нашего идеального партнёра:\n{portrait}\n\n"
+        f"Портрет идеального партнёра:\n{portrait}\n\n"
         f"Данные блогера:\n{candidate}\n\n"
         "Напиши персональный оффер."
     )
     return chat_json(system, user)
 
 def generate_all_offers(portrait: dict, candidates: list[dict]) -> list[dict]:
-    return [generate_offer(portrait, c) for c in candidates]
+    offers = []
+    for c in candidates:
+        print(f"  → оффер для @{c['username']}")
+        offers.append(generate_offer(portrait, c))
+    return offers
