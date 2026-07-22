@@ -1,1 +1,8 @@
 .env
+.env
+__pycache__/
+*.pyc
+.venv/
+venv/
+output/latest_run.json
+data/manual_profile_notes.json
