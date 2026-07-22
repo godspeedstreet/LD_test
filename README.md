@@ -10,7 +10,7 @@
 Это самый быстрый способ проверить, что пайплайн работает целиком.
 
 ```bash
-git clone [<ссылка на репозиторий>](https://github.com/godspeedstreet/LD_test)
+git clone https://github.com/godspeedstreet/LD_test
 cd LD_test
 pip install -r requirements.txt 
 ```
