@@ -1,0 +1,16 @@
+[
+  {
+    "username": "example_blogger_1",
+    "platform": "instagram",
+    "profile_url": "https://www.instagram.com/example_blogger_1/",
+    "followers_estimate": "18000",
+    "why_fit": "Публикует капсульные образы и честные примерки с маркетплейсов — совпадает с портретом"
+  },
+  {
+    "username": "example_blogger_2",
+    "platform": "instagram",
+    "profile_url": "https://www.instagram.com/example_blogger_2/",
+    "followers_estimate": "52000",
+    "why_fit": "Натуральная подача, минималистичный визуал, аудитория с похожими интересами"
+  }
+]
