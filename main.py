@@ -1,8 +1,11 @@
+import argparse
 import json
 import os
 from pathlib import Path
+
 from dotenv import load_dotenv
 
+import cache
 from sheet_reader import load_blogger_usernames
 from instagram_collector import collect_all
 from portrait_builder import build_portrait
@@ -10,46 +13,135 @@ from blogger_discovery import discover_bloggers
 from offer_generator import generate_all_offers
 
 OUTPUT_DIR = Path(__file__).parent / "output"
-DATA_DIR = Path(__file__).parent / "data"
 
-def load_demo_profiles() -> list[dict]:
-    return json.loads((DATA_DIR / "demo_profiles.json").read_text(encoding="utf-8"))
+STEPS = ("sheet", "collect", "portrait", "discover", "offers", "all")
 
-def main():
-    load_dotenv()
-    mode = os.getenv("RUN_MODE", "demo")
-    spreadsheet_id = os.getenv("SPREADSHEET_ID")
+def parse_args():
+    p = argparse.ArgumentParser(description="Blogger outreach pipeline")
+    p.add_argument("--step", choices=STEPS, default="all")
+    p.add_argument("--fixtures", action="store_true", help="Использовать готовые fixture-данные")
+    p.add_argument("--limit", type=int, default=5, help="Сколько профилей из таблицы брать на collect")
+    p.add_argument("--no-llm-rank", action="store_true", help="Discover без LLM-ранжирования")
+    return p.parse_args()
 
+def step_sheet(spreadsheet_id: str) -> list[str]:
+    print("[sheet] Читаю Google Sheets...")
     usernames = load_blogger_usernames(spreadsheet_id)
-    print(f"[1/5] Загружено блогеров из таблицы: {len(usernames)}")
+    print(f"  найдено: {len(usernames)}")
+    cache.save("usernames", usernames)
+    return usernames
 
-    if mode == "demo":
-        profiles = [p for p in load_demo_profiles() if p["username"] in usernames][:10]
-        print(f"[2/5] DEMO: используются сохранённые профили ({len(profiles)})")
+def step_collect(usernames: list[str], limit: int, fixtures: bool) -> list[dict]:
+    print("[collect] Собираю профили...")
+    if fixtures:
+        profiles = cache.load_fixture("profiles")
+        print(f"  fixtures: {len(profiles)} профилей")
     else:
-        profiles = [p.to_dict() for p in collect_all(usernames[:15])]
-        print(f"[2/5] Собраны данные профилей: {len(profiles)}")
+        profiles = collect_all(usernames[:limit])
+    cache.save("profiles", profiles)
+    return profiles
 
-    portrait = build_portrait(profiles)
-    print("[3/5] Портрет идеального блогера построен")
+def step_portrait(profiles: list[dict], fixtures: bool) -> dict:
+    print("[portrait] Строю портрет...")
+    if fixtures:
+        portrait = cache.load_fixture("portrait")
+        print("  fixture portrait загружен")
+    else:
+        portrait = build_portrait(profiles)
+    cache.save("portrait", portrait)
+    return portrait
 
-    candidates = discover_bloggers(portrait, usernames)
-    print(f"[4/5] Найдено новых кандидатов: {len(candidates)}")
+def step_discover(portrait: dict, usernames: list[str], fixtures: bool, no_llm_rank: bool) -> list[dict]:
+    print("[discover] Ищу новых кандидатов...")
+    if fixtures:
+        candidates = cache.load_fixture("candidates")
+        print(f"  fixtures: {len(candidates)} кандидатов")
+    else:
+        candidates = discover_bloggers(
+            portrait,
+            usernames,
+            use_llm_rank=not no_llm_rank,
+        )
+    cache.save("candidates", candidates)
+    return candidates
 
-    offers = generate_all_offers(portrait, candidates)
-    print(f"[5/5] Сгенерировано офферов: {len(offers)}")
+def step_offers(portrait: dict, candidates: list[dict], fixtures: bool) -> list[dict]:
+    print("[offers] Генерирую офферы...")
+    if fixtures:
+        offers = [
+            {
+                "username": c["username"],
+                "platform": c.get("platform", "instagram"),
+                "message": (
+                    f"Привет, @{c['username']}! Нам очень откликается твой стиль — "
+                    f"особенно {c.get('why_fit', 'подача контента')}. "
+                    "Хотим предложить бартер: 1–2 вещи из новой коллекции в обмен на Stories/Reels. "
+                    "Если интересно — напиши, пришлю подборку."
+                ),
+            }
+            for c in candidates
+        ]
+        print(f"  fixtures: {len(offers)} офферов")
+    else:
+        offers = generate_all_offers(portrait, candidates)
+    cache.save("offers", offers)
+    return offers
 
+def save_final_result(profiles, portrait, candidates, offers):
+    OUTPUT_DIR.mkdir(exist_ok=True)
     result = {
         "portrait": portrait,
         "source_profiles_count": len(profiles),
         "new_candidates": candidates,
         "offers": offers,
     }
+    path = OUTPUT_DIR / "latest_run.json"
+    path.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+    print(f"\n✓ Результат сохранён: {path}")
 
-    OUTPUT_DIR.mkdir(exist_ok=True)
-    out_json = OUTPUT_DIR / "latest_run.json"
-    out_json.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
-    print(f"\nГотово → {out_json}")
+def main():
+    load_dotenv()
+    args = parse_args()
+
+    spreadsheet_id = os.getenv("SPREADSHEET_ID")
+    if not spreadsheet_id and not args.fixtures:
+        raise SystemExit("Укажи SPREADSHEET_ID в .env")
+
+    usernames = profiles = portrait = candidates = offers = None
+
+    if args.step in ("sheet", "all"):
+        usernames = step_sheet(spreadsheet_id)
+    elif args.fixtures:
+        usernames = cache.load_fixture("profiles")
+        usernames = [p["username"] for p in usernames]
+    else:
+        usernames = cache.load("usernames")
+
+    if args.step in ("collect", "all"):
+        profiles = step_collect(usernames, args.limit, args.fixtures)
+    elif args.step in ("portrait", "discover", "offers"):
+        profiles = cache.load_fixture("profiles") if args.fixtures else cache.load("profiles")
+
+    if args.step in ("portrait", "all"):
+        profiles = profiles or (cache.load_fixture("profiles") if args.fixtures else cache.load("profiles"))
+        portrait = step_portrait(profiles, args.fixtures)
+    elif args.step in ("discover", "offers"):
+        portrait = cache.load_fixture("portrait") if args.fixtures else cache.load("portrait")
+
+    if args.step in ("discover", "all"):
+        portrait = portrait or (cache.load_fixture("portrait") if args.fixtures else cache.load("portrait"))
+        candidates = step_discover(portrait, usernames, args.fixtures, args.no_llm_rank)
+    elif args.step == "offers":
+        candidates = cache.load_fixture("candidates") if args.fixtures else cache.load("candidates")
+
+    if args.step in ("offers", "all"):
+        portrait = portrait or (cache.load_fixture("portrait") if args.fixtures else cache.load("portrait"))
+        candidates = candidates or (cache.load_fixture("candidates") if args.fixtures else cache.load("candidates"))
+        offers = step_offers(portrait, candidates, args.fixtures)
+
+    if args.step == "all":
+        profiles = profiles or cache.load("profiles")
+        save_final_result(profiles, portrait, candidates, offers)
 
 if __name__ == "__main__":
     main()
